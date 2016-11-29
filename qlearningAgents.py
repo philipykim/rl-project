@@ -36,7 +36,6 @@ class QLearningAgent(ReinforcementAgent):
     "You can initialize Q-values here..."
     ReinforcementAgent.__init__(self, **args)
 
-    print args
     if args["observationFn"]:
       self.observationFn = args["observationFn"]
 

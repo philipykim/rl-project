@@ -95,6 +95,32 @@ class Gridworld():
     """
     self.noise = noise
 
+  def getStates(self):
+    """
+    Return list of all states.
+    """
+    positions = [self.grid.terminalState]
+    for x in range(self.grid.width):
+      for y in range(self.grid.height):
+        if self.grid[x][y] != '#':
+          pos = (x,y)
+          positions.append(pos)
+
+    # TODO: un-hardwire A and B
+    #startState = self.getStartState()
+    states = []
+    for posA in positions:
+      protostate = {}
+      protostate['A'] = posA
+      for posB in positions:
+        if posB == posA:
+          continue
+        state = dict(protostate)
+        state['B'] = posB
+        states.append(state)
+
+    return states
+
   def getPossibleActions(self, state, agent):
     """
     Returns list of valid actions for the agent with 
@@ -279,7 +305,7 @@ def runEpisode(agents, environment, discount, display, message, pause, episode):
 
       # DISPLAY CURRENT STATE
       state = environment.getCurrentState()
-      display(state)
+      display(state, agent, agentLabel)
       pause()
 
       if len(environment.getPossibleActions(state, agentLabel)) == 0:
@@ -435,12 +461,12 @@ if __name__ == '__main__':
     world.setLivingReward(opts.livingReward)
     world.setNoise(opts.noise)
     env = GridworldEnvironment(world)
-  
-    #import textGridworldDisplay
-    #display = textGridworldDisplay.TextGridworldDisplay(env)
+
+    import textGridworldDisplay
+    display = textGridworldDisplay.TextGridworldDisplay(world)
     #if not opts.textDisplay:
-    import graphicsGridworldDisplay
-    display = graphicsGridworldDisplay.GraphicsGridworldDisplay(world, opts.gridSize, opts.speed)
+    #  import graphicsGridworldDisplay
+    #  display = graphicsGridworldDisplay.GraphicsGridworldDisplay(world, opts.gridSize, opts.speed)
     display.start()
   
     agents = []
@@ -464,7 +490,10 @@ if __name__ == '__main__':
                     'observationFn': lambda state: flatteningObserver(state)}
       agents.append(qlearningAgents.QLearningAgent(**qLearnOpts))
 
-    displayCallback = lambda x: None
+    # FIGURE OUT WHAT TO DISPLAY EACH TIME STEP (IF ANYTHING)
+    displayCallback = lambda state, agent, label: None
+    if not opts.quiet:
+      displayCallback = lambda state, agent, label: display.displayQValues(agent, label, currentState=state, message="CURRENT Q-VALUES FOR "+label)
   
     messageCallback = lambda x: printString(x)
     if opts.quiet:
@@ -482,6 +511,9 @@ if __name__ == '__main__':
       print
       print "AVERAGE RETURNS FROM START STATE: "+str((returns+0.0) / opts.episodes)
 
+    for index, agent in enumerate(agents):
+      display.displayQValues(agent, env.agentLabels[index], message="Q-VALUES AFTER "+str(opts.episodes)+" EPISODES")
+      display.pause()
 
   except:
     type, value, tb = sys.exc_info()
