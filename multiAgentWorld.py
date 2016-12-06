@@ -294,6 +294,7 @@ def runEpisode(agents, environment, discount, display, message, pause, episode):
 
   message("BEGINNING EPISODE: "+str(episode)+"\n")
 
+  transitions = [None for a in agents] # tuple of state, action, reward
   timestep = 0
   
   while True:
@@ -303,14 +304,21 @@ def runEpisode(agents, environment, discount, display, message, pause, episode):
     for index, agent in enumerate(agents):
       agentLabel = environment.agentLabels[index]
 
-      # DISPLAY CURRENT STATE
       state = environment.getCurrentState()
-      display(state, agent, agentLabel)
-      pause()
+
+      # UPDATE LEARNER
+      if transitions[index] != None and 'observeTransition' in dir(agent):
+        previousState, previousAction, previousReward = transitions[index]
+        agent.observeTransition(previousState, previousAction, state, previousReward)
 
       if len(environment.getPossibleActions(state, agentLabel)) == 0:
+        transitions[index] = None
         completedAgents += 1
         continue
+
+      # DISPLAY CURRENT STATE
+      display(state, agent, agentLabel)
+      pause()
 
       # GET ACTION (USUALLY FROM AGENT)
       action = agent.getAction(state)
@@ -323,11 +331,8 @@ def runEpisode(agents, environment, discount, display, message, pause, episode):
               "\nTook action: "+str(action)+
               "\nEnded in state: "+str(nextState)+
               "\nGot reward: "+str(reward)+"\n")
+      transitions[index] = (state, action, reward)
     
-      # UPDATE LEARNER
-      if 'observeTransition' in dir(agent): 
-        agent.observeTransition(state, action, nextState, reward)
-      
       returns += reward * totalDiscount
 
     totalDiscount *= discount
