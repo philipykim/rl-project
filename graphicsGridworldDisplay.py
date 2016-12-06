@@ -7,6 +7,7 @@
 # For more info, see http://inst.eecs.berkeley.edu/~cs188/sp09/pacman.html
 
 import util
+from collections import defaultdict
 from graphicsUtils import *
 
 class GraphicsGridworldDisplay:
@@ -43,21 +44,55 @@ class GraphicsGridworldDisplay:
     # drawValues(self.gridworld, values, policy, currentState, message)
     sleep(0.05 / self.speed)
 
-  def displayQValues(self, agent, currentState = None, message = 'Agent Q-Values'):
+  def displayQValues(self, agent, label, currentState = None, message = 'Agent Q-Values'):
     qValues = util.Counter()
     states = self.gridworld.getStates()
-    for state in states:
-      for action in self.gridworld.getPossibleActions(state):
-        qValues[(state, action)] = agent.getQValue(state, action)
-    drawQValues(self.gridworld, qValues, currentState, message)
-    sleep(0.05 / self.speed)
+
+    # Hard-wired for two agents
+    otherLabel = [l for l in states[0].keys() if l != label][0]
+
+    if currentState != None:
+      states = [s for s in states if s[otherLabel] == currentState[otherLabel]] # all states the world can be in, fixing the other agent's pos
+      positions = {v: k for k, v in currentState.iteritems()}                   # dict of pos -> agent labels
+
+      possibleActions = defaultdict(list)
+      for state in states:
+        for action in self.gridworld.getPossibleActions(state, label):
+          agentPos = state[label]
+          possibleActions[agentPos].append(action)                              # all actions the agent can take for each position
+          qValues[(agentPos, action)] = agent.getQValue(state, action)          # the q-values for those actions
+      drawQValues(self.gridworld, possibleActions, qValues, positions, message)
+      sleep(0.05 / self.speed)
+
+    if currentState == None:
+      print "Q-VALUES FOR "+label+"\n"
+
+      # Group by position of B
+      grouping = defaultdict(list)
+      for state in states:
+        grouping[state[otherLabel]].append(state)
+  
+      #for key, group in grouping.items():
+      for key in sorted(grouping.keys(), key=lambda k: k[0] * self.gridworld.grid.width + k[1]):
+        group = grouping[key]
+        positions = {}
+        positions[key] = otherLabel
+        possibleActions = defaultdict(list)
+        for state in group:
+          for action in self.gridworld.getPossibleActions(state, label):
+            agentPos = state[label]
+            possibleActions[agentPos].append(action) 
+            qValues[(agentPos, action)] = agent.getQValue(state, action)
+        drawQValues(self.gridworld, possibleActions, qValues, positions, message)
+        self.pause()
 
 BACKGROUND_COLOR = formatColor(0,0,0)    
 EDGE_COLOR = formatColor(1,1,1)
 OBSTACLE_COLOR = formatColor(0.5,0.5,0.5)
 TEXT_COLOR = formatColor(1,1,1)
 MUTED_TEXT_COLOR = formatColor(0.7,0.7,0.7)
-LOCATION_COLOR = formatColor(0,0,1)
+LOCATION_COLOR_A = formatColor(0,0,1)
+LOCATION_COLOR_B = formatColor(1,0,0)
 
 WINDOW_SIZE = -1
 GRID_SIZE = -1
@@ -95,7 +130,7 @@ def drawNullValues(gridworld, currentState = None, message = ''):
   text( pos, TEXT_COLOR, message, "Courier", -32, "bold", "c")
   
 
-def drawValues(gridworld, values, policy, currentState = None, message = 'State Values'):
+def drawValues(gridworld, values, policy, positions, message = 'State Values'):
   grid = gridworld.grid
   blank()
   valueList = [values[state] for state in gridworld.getStates()] + [0.0]
@@ -122,21 +157,20 @@ def drawValues(gridworld, values, policy, currentState = None, message = 'State 
   pos = to_screen(((grid.width - 1.0) / 2.0, - 0.8))
   text( pos, TEXT_COLOR, message, "Courier", -32, "bold", "c")
 
-def drawQValues(gridworld, qValues, currentState = None, message = 'State-Action Q-Values'):
+def drawQValues(gridworld, possibleActions, qValues, currentState = None, message = 'State-Action Q-Values'):
   grid = gridworld.grid
   blank()
-  stateCrossActions = [[(state, action) for action in gridworld.getPossibleActions(state)] for state in gridworld.getStates()]
-  qStates = reduce(lambda x,y: x+y, stateCrossActions, [])
-  qValueList = [qValues[(state, action)] for state, action in qStates] + [0.0]
-  minValue = min(qValueList)
-  maxValue = max(qValueList)
+  minValue = min(qValues.values())
+  maxValue = max(qValues.values())
   for x in range(grid.width):
     for y in range(grid.height):
       state = (x, y)
       gridType = grid[x][y]
       isExit = (str(gridType) != gridType)
-      isCurrent = (currentState == state)
-      actions = gridworld.getPossibleActions(state)
+      isCurrent = None
+      if currentState and state in currentState:
+        isCurrent = currentState[state]
+      actions = possibleActions[state]
       if actions == None or len(actions) == 0:
         actions = [None]
       bestQ = max([qValues[(state, action)] for action in actions])
@@ -199,7 +233,7 @@ def drawNullSquare(grid,x, y, isObstacle, isTerminal, isCurrent):
   text_color = TEXT_COLOR
 
   if not isObstacle and isCurrent:
-    circle( (screen_x, screen_y), 0.1*GRID_SIZE, LOCATION_COLOR, fillColor=LOCATION_COLOR )
+    circle( (screen_x, screen_y), 0.1*GRID_SIZE, LOCATION_COLOR_A, fillColor=LOCATION_COLOR_A )
 
   # if not isObstacle:
   #   text( (screen_x, screen_y), text_color, valStr, "Courier", 24, "bold", "c")
@@ -243,13 +277,13 @@ def drawSquare(x, y, val, min, max, valStr, action, isObstacle, isTerminal, isCu
   text_color = TEXT_COLOR
 
   if not isObstacle and isCurrent:
-    circle( (screen_x, screen_y), 0.1*GRID_SIZE, outlineColor=LOCATION_COLOR, fillColor=LOCATION_COLOR )
+    circle( (screen_x, screen_y), 0.1*GRID_SIZE, outlineColor=LOCATION_COLOR_A, fillColor=LOCATION_COLOR_A )
 
   if not isObstacle:
     text( (screen_x, screen_y), text_color, valStr, "Courier", -30, "bold", "c")
 
 
-def drawSquareQ(x, y, qVals, minVal, maxVal, valStrs, bestActions, isCurrent):
+def drawSquareQ(x, y, qVals, minVal, maxVal, valStrs, bestActions, label = None):
 
   (screen_x, screen_y) = to_screen((x, y))
   
@@ -289,8 +323,12 @@ def drawSquareQ(x, y, qVals, minVal, maxVal, valStrs, bestActions, isCurrent):
   line(ne, sw, color = EDGE_COLOR)
   line(nw, se, color = EDGE_COLOR)
 
-  if isCurrent:
-    circle( (screen_x, screen_y), 0.1*GRID_SIZE, LOCATION_COLOR, fillColor=LOCATION_COLOR )
+  if label == "A":
+    color = LOCATION_COLOR_A
+    circle( (screen_x-0.15*GRID_SIZE, screen_y), 0.1*GRID_SIZE, color, fillColor=color )
+  elif label == "B":
+    color = LOCATION_COLOR_B
+    circle( (screen_x+0.15*GRID_SIZE, screen_y), 0.1*GRID_SIZE, color, fillColor=color )
 
   for action in actions:
     text_color = TEXT_COLOR

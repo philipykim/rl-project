@@ -377,9 +377,9 @@ def parseOptions():
     optParser.add_option('-p', '--pause',action='store_true',
                          dest='pause',default=False,
                          help='Pause GUI after each time step when running the MDP')
-    optParser.add_option('-q', '--quiet',action='store_true',
-                         dest='quiet',default=False,
-                         help='Skip display of any learning episodes')
+    optParser.add_option('-q', '--quiet',action='store',
+                         type='int',dest='quiet',default=0,
+                         help='Number of episodes to skip displaying')
     optParser.add_option('-s', '--speed',action='store', metavar="S", type=float,
                          dest='speed',default=1.0,
                          help='Speed of animation, S > 1.0 is faster, 0.0 < S < 1.0 is slower (default %default)')
@@ -392,7 +392,7 @@ def parseOptions():
     opts, args = optParser.parse_args()
     
     # MANAGE CONFLICTS
-    if opts.textDisplay or opts.quiet:
+    if opts.textDisplay:
       opts.pause = False
       
     if opts.manual > 0:
@@ -464,9 +464,9 @@ if __name__ == '__main__':
 
     import textGridworldDisplay
     display = textGridworldDisplay.TextGridworldDisplay(world)
-    #if not opts.textDisplay:
-    #  import graphicsGridworldDisplay
-    #  display = graphicsGridworldDisplay.GraphicsGridworldDisplay(world, opts.gridSize, opts.speed)
+    if not opts.textDisplay:
+      import graphicsGridworldDisplay
+      display = graphicsGridworldDisplay.GraphicsGridworldDisplay(world, opts.gridSize, opts.speed)
     display.start()
   
     agents = []
@@ -490,21 +490,22 @@ if __name__ == '__main__':
                     'observationFn': lambda state: flatteningObserver(state)}
       agents.append(qlearningAgents.QLearningAgent(**qLearnOpts))
 
-    # FIGURE OUT WHAT TO DISPLAY EACH TIME STEP (IF ANYTHING)
-    displayCallback = lambda state, agent, label: None
-    if not opts.quiet:
-      displayCallback = lambda state, agent, label: display.displayQValues(agent, label, currentState=state, message="CURRENT Q-VALUES FOR "+label)
-  
-    messageCallback = lambda x: printString(x)
-    if opts.quiet:
-      messageCallback = lambda x: None
-  
-    pauseCallback = lambda : None
-    if opts.pause:
-      pauseCallback = lambda : display.pause()
-  
     returns = 0
     for episode in range(1, opts.episodes+1):
+      
+      displayCallback = lambda state, agent, label: None
+      if opts.quiet == -1 or episode > opts.quiet:
+        displayCallback = lambda state, agent, label: display.displayQValues(agent, label, currentState=state, message="CURRENT Q-VALUES FOR "+label)
+  
+      messageCallback = lambda x: None
+      if opts.quiet == -1 or episode > opts.quiet:
+        messageCallback = lambda x: printString(x)
+
+      pauseCallback = lambda : None
+      if opts.pause and (opts.quiet == -1 or episode > opts.quiet):
+        pauseCallback = lambda : display.pause()
+
+      print "STARTING EPISODE %d" % (episode)
       returns += runEpisode(agents, env, opts.discount, displayCallback, messageCallback, pauseCallback, episode)
 
     if opts.episodes > 0:

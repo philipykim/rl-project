@@ -47,14 +47,14 @@ class TextGridworldDisplay:
 
     if currentState != None:
       states = [s for s in states if s[otherLabel] == currentState[otherLabel]]
-      display = {v: k for k, v in currentState.iteritems()}
+      positions = {v: k for k, v in currentState.iteritems()} # dict of pos -> agent labels
 
       possibleActions = defaultdict(list)
       for state in states:
         for action in self.gridworld.getPossibleActions(state, label):
           possibleActions[state[label]].append(action) 
           qValues[(state[label], action)] = agent.getQValue(state, action)
-      prettyPrintQValues(self.gridworld, possibleActions, qValues, display)
+      prettyPrintQValues(self.gridworld, possibleActions, qValues, positions)
 
     if currentState == None:
       print "Q-VALUES FOR "+label+"\n"
@@ -65,14 +65,14 @@ class TextGridworldDisplay:
         grouping[state[otherLabel]].append(state)
   
       for key, group in grouping.items():
-        display = {}
-        display[key] = otherLabel
+        positions = {}
+        positions[key] = otherLabel
         possibleActions = defaultdict(list)
         for state in group:
           for action in self.gridworld.getPossibleActions(state, label):
             possibleActions[state[label]].append(action) 
             qValues[(state[label], action)] = agent.getQValue(state, action)
-        prettyPrintQValues(self.gridworld, possibleActions, qValues, display)
+        prettyPrintQValues(self.gridworld, possibleActions, qValues, positions)
 
 def prettyPrintValues(gridWorld, values, policy=None, currentState = None):
   grid = gridWorld.grid
