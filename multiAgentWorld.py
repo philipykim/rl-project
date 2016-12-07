@@ -3,6 +3,7 @@ import qlearningAgents
 import util
 import pdb, traceback, sys
 import random
+from cStringIO import StringIO
 
 class Grid:
   """
@@ -52,13 +53,17 @@ class Grid:
   def __str__(self):
     return str(self._getLegacyText())
 
-
 def getBridgeGrid():
   grid = [['AS' ,'#','#','#','BS' ],
           [' '  ,' ',' ',' ',' '  ],
           ['B10','#','#','#','A10']]
   return Gridworld(grid)
 
+def getBigBridgeGrid():
+  grid = [['AS' ,'#','#','#','#','#','BS' ],
+          [' '  ,' ',' ',' ',' ',' ',' '  ],
+          ['B10','#','#','#','#','#','A10']]
+  return Gridworld(grid)
 
 class Gridworld():
   """
@@ -246,10 +251,16 @@ class Gridworld():
     return newPosAndProbs
         
   def __isAllowed(self, state, y, x):
-    if y < 0 or y >= self.grid.height: return False
-    if x < 0 or x >= self.grid.width: return False
-    if (x, y) in state.values(): return False
-    return self.grid[x][y] != '#'
+    return not (self.isWall(state, y, x) or self.isAgent(state, y, x))
+
+  def isWall(self, state, y, x):
+    if y < 0 or y >= self.grid.height: return True
+    if x < 0 or x >= self.grid.width: return True
+    return self.grid[x][y] == '#'
+
+  def isAgent(self, state, y, x):
+    return (x, y) in state.values()
+
 
 class GridworldEnvironment():
     
@@ -382,6 +393,9 @@ def parseOptions():
     optParser.add_option('-p', '--pause',action='store_true',
                          dest='pause',default=False,
                          help='Pause GUI after each time step when running the MDP')
+    optParser.add_option('-o', '--partial',action='store_true',
+                         dest='partial',default=False,
+                         help='Whether the world is partially-observable')
     optParser.add_option('-q', '--quiet',action='store',
                          type='int',dest='quiet',default=0,
                          help='Number of episodes to skip displaying')
@@ -456,6 +470,25 @@ def flatteningObserver(state):
   observation = [e for l in orderedState for e in l]
   return tuple(observation)
 
+def radiusOneObserverFactory(world, agent):
+
+  def radiusOneObserver(state):
+    if world.isTerminal(state, agent):
+      return ""
+    observation = StringIO()
+    ax, ay = state[agent]
+    for x in range(ax-1, ax+2):
+      for y in range(ay-1, ay+2):
+        if world.isWall(state, y, x):
+          observation.write("#")
+        elif world.isAgent(state, y, x):
+          observation.write("X")
+        else:
+          observation.write(" ")
+    return observation.getvalue()
+
+  return radiusOneObserver
+
 if __name__ == '__main__':
   try:
     opts = parseOptions()
@@ -479,7 +512,6 @@ if __name__ == '__main__':
       agent = env.agentLabels[index]
       actionGetter = (lambda a: lambda state: env.getPossibleActions(state, a))(agent) 
       agents.append(UserAgent(actionGetter))
-      #agents.append(UserAgent(lambda state: env.getPossibleActions(state, agent)))
   
     for index in range(opts.manual, len(env.agentLabels)):
       agent = env.agentLabels[index]
@@ -487,12 +519,15 @@ if __name__ == '__main__':
       actionGetter = (lambda a: lambda state: env.getPossibleActions(state, a))(agent) 
       actionFn = actionGetter
 
-      #actionFn = lambda state: env.getPossibleActions(state, agent)
+      observationFn = flatteningObserver
+      if opts.partial:
+        observationFn = radiusOneObserverFactory(world, agent)
+
       qLearnOpts = {'gamma': opts.discount, 
                     'alpha': opts.learningRate, 
                     'epsilon': opts.epsilon,
                     'actionFn': actionFn,
-                    'observationFn': lambda state: flatteningObserver(state)}
+                    'observationFn': observationFn}
       agents.append(qlearningAgents.QLearningAgent(**qLearnOpts))
 
     returns = 0
