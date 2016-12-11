@@ -9,6 +9,7 @@
 import util
 from collections import defaultdict
 from graphicsUtils import *
+import pdb
 
 class GraphicsGridworldDisplay:
   
@@ -46,13 +47,9 @@ class GraphicsGridworldDisplay:
 
   def displayQValues(self, agent, label, currentState = None, message = 'Agent Q-Values'):
     qValues = util.Counter()
-    states = self.gridworld.getStates()
-
-    # Hard-wired for two agents
-    otherLabel = [l for l in states[0].keys() if l != label][0]
 
     if currentState != None:
-      states = [s for s in states if s[otherLabel] == currentState[otherLabel]] # all states the world can be in, fixing the other agent's pos
+      states = self.gridworld.getStatesGiven(currentState, label)               # states for all positions the agent can be in, fixing everything else
       positions = {v: k for k, v in currentState.iteritems()}                   # dict of pos -> agent labels
 
       possibleActions = defaultdict(list)
@@ -61,30 +58,56 @@ class GraphicsGridworldDisplay:
           agentPos = state[label]
           possibleActions[agentPos].append(action)                              # all actions the agent can take for each position
           qValues[(agentPos, action)] = agent.getQValue(state, action)          # the q-values for those actions
-      drawQValues(self.gridworld, possibleActions, qValues, positions, message)
+      if self.gridworld.allowComm:
+        message += currentState['A_msg'] and " A_MSG " or "     "
+        message += currentState['B_msg'] and " B_MSG " or "     "
+
+      drawQValues(self.gridworld, label, possibleActions, qValues, positions, message)
       sleep(0.05 / self.speed)
 
-    if currentState == None:
-      print "Q-VALUES FOR "+label+"\n"
+    else:
+      self.dumpQValues(agent, label, message)
 
-      # Group by position of B
-      grouping = defaultdict(list)
-      for state in states:
-        grouping[state[otherLabel]].append(state)
-  
-      #for key, group in grouping.items():
-      for key in sorted(grouping.keys(), key=lambda k: k[0] * self.gridworld.grid.width + k[1]):
-        group = grouping[key]
-        positions = {}
-        positions[key] = otherLabel
-        possibleActions = defaultdict(list)
-        for state in group:
-          for action in self.gridworld.getPossibleActions(state, label):
-            agentPos = state[label]
-            possibleActions[agentPos].append(action) 
-            qValues[(agentPos, action)] = agent.getQValue(state, action)
-        drawQValues(self.gridworld, possibleActions, qValues, positions, message)
+  def dumpQValues(self, agent, label, message, filenameFormat = None):
+    qValues = util.Counter()
+    states = self.gridworld.getStates()
+
+    # Hard-wired for two agents
+    otherLabel = [l for l in states[0].keys() if l != label and not l.endswith('_msg')][0]
+    keyGen = lambda s: s[otherLabel]
+    sorter = lambda k: k[0] * self.gridworld.grid.width + k[1]
+    if self.gridworld.allowComm:
+      keyGen = lambda s: (s[otherLabel], s[label + "_msg"], s[otherLabel + "_msg"])
+      sorter = lambda k: (k[1] and 1000 or 0) + (k[2] and 100 or 0) + (str(k[0]) == k[0] and 99 or (k[0][0] * self.gridworld.grid.width + k[0][1]))
+
+    # Group by position of B
+    grouping = defaultdict(list)
+    for state in states:
+      grouping[keyGen(state)].append(state)
+
+    # Draw for each position of A
+    index = 0
+    for key in sorted(grouping.keys(), key=sorter):
+      group = grouping[key]
+      repState = group[0]
+      positions = {v: k for k, v in repState.iteritems() if k != label}
+      possibleActions = defaultdict(list)
+      for state in group:
+        for action in self.gridworld.getPossibleActions(state, label):
+          agentPos = state[label]
+          possibleActions[agentPos].append(action) 
+          qValues[(agentPos, action)] = agent.getQValue(state, action)
+      msg = message
+      if self.gridworld.allowComm:
+        msg += repState['A_msg'] and " A_MSG " or "     "
+        msg += repState['B_msg'] and " B_MSG " or "     "
+      drawQValues(self.gridworld, label, possibleActions, qValues, positions, msg)
+      if filenameFormat:
+        writePNG(filenameFormat % (index))
+      else:
         self.pause()
+      index += 1
+
 
 BACKGROUND_COLOR = formatColor(0,0,0)    
 EDGE_COLOR = formatColor(1,1,1)
@@ -157,40 +180,41 @@ def drawValues(gridworld, values, policy, positions, message = 'State Values'):
   pos = to_screen(((grid.width - 1.0) / 2.0, - 0.8))
   text( pos, TEXT_COLOR, message, "Courier", -32, "bold", "c")
 
-def drawQValues(gridworld, possibleActions, qValues, currentState = None, message = 'State-Action Q-Values'):
+def drawQValues(gridworld, agent, possibleActions, qValues, agentPoses = None, message = 'State-Action Q-Values'):
   grid = gridworld.grid
   blank()
   minValue = min(qValues.values())
   maxValue = max(qValues.values())
+
   for x in range(grid.width):
     for y in range(grid.height):
-      state = (x, y)
+      pos = (x, y)
       gridType = grid[x][y]
-      isExit = (str(gridType) != gridType)
-      isCurrent = None
-      if currentState and state in currentState:
-        isCurrent = currentState[state]
-      actions = possibleActions[state]
+      isExit = gridType[0] == agent and len(gridType) > 1 and gridType[1] == 'E'
+      agentInSquare = None
+      if agentPoses and pos in agentPoses:
+        agentInSquare = agentPoses[pos]
+      actions = possibleActions[pos]
       if actions == None or len(actions) == 0:
         actions = [None]
-      bestQ = max([qValues[(state, action)] for action in actions])
-      bestActions = [action for action in actions if qValues[(state, action)] == bestQ]
+      bestQ = max([qValues[(pos, action)] for action in actions])
+      bestActions = [action for action in actions if qValues[(pos, action)] == bestQ]
 
       q = util.Counter()
       valStrings = {}
       for action in actions:
-        v = qValues[(state, action)]
+        v = qValues[(pos, action)]
         q[action] += v
         valStrings[action] = '%.2f' % v
       if gridType == '#':
-        drawSquare(x, y, 0, 0, 0, None, None, True, False, isCurrent)
+        drawSquare(x, y, 0, 0, 0, None, None, True, False, agentInSquare)
       elif isExit:
         action = 'exit'
         value = q[action]
         valString = '%.2f' % value
-        drawSquare(x, y, value, minValue, maxValue, valString, action, False, isExit, isCurrent)
+        drawSquare(x, y, value, minValue, maxValue, valString, action, False, isExit, agentInSquare)
       else:
-        drawSquareQ(x, y, q, minValue, maxValue, valStrings, actions, isCurrent)
+        drawSquareQ(x, y, q, minValue, maxValue, valStrings, actions, agentInSquare)
   pos = to_screen(((grid.width - 1.0) / 2.0, - 0.8))
   text( pos, TEXT_COLOR, message, "Courier", -32, "bold", "c")
 
@@ -276,8 +300,10 @@ def drawSquare(x, y, val, min, max, valStr, action, isObstacle, isTerminal, isCu
   
   text_color = TEXT_COLOR
 
-  if not isObstacle and isCurrent:
+  if not isObstacle and isCurrent == "A":
     circle( (screen_x, screen_y), 0.1*GRID_SIZE, outlineColor=LOCATION_COLOR_A, fillColor=LOCATION_COLOR_A )
+  if not isObstacle and isCurrent == "B":
+    circle( (screen_x, screen_y), 0.1*GRID_SIZE, outlineColor=LOCATION_COLOR_B, fillColor=LOCATION_COLOR_B )
 
   if not isObstacle:
     text( (screen_x, screen_y), text_color, valStr, "Courier", -30, "bold", "c")
@@ -296,6 +322,7 @@ def drawSquareQ(x, y, qVals, minVal, maxVal, valStrs, bestActions, label = None)
   s = (screen_x, screen_y+0.5*GRID_SIZE-5)
   w = (screen_x-0.5*GRID_SIZE+5, screen_y)
   e = (screen_x+0.5*GRID_SIZE-5, screen_y)
+  cs = (screen_x, screen_y+0.25*GRID_SIZE-5)
   
   actions = qVals.keys()
   for action in actions:
@@ -314,7 +341,7 @@ def drawSquareQ(x, y, qVals, minVal, maxVal, valStrs, bestActions, label = None)
     if action == 'west':
       polygon( (center, nw, sw), wedge_color, filled = 1, smoothed = False)
       #text(w, text_color, valStr, "Courier", 8, "bold", "w")
-      
+
   square( (screen_x, screen_y), 
                  0.5* GRID_SIZE, 
                  color = EDGE_COLOR,
@@ -349,6 +376,8 @@ def drawSquareQ(x, y, qVals, minVal, maxVal, valStrs, bestActions, label = None)
     if action == 'west':
       #polygon( (center, nw, sw), wedge_color, filled = 1, smooth = 0)
       text(w, text_color, valStr, "Courier", h, "bold", "w")
+    if action == 'comm':
+      text(cs, text_color, valStr, "Courier", h, "bold", "center")
 
 
 def getColor(val, minVal, max):

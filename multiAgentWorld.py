@@ -5,6 +5,7 @@ import pdb, traceback, sys
 import random
 from cStringIO import StringIO
 import datetime
+import copy
 
 class Grid:
   """
@@ -69,20 +70,45 @@ def getBigBridgeGrid():
   return Gridworld(grid)
 
 def getBigUglyBridgeGrid():
+  # No communication possible
+  grid  = [[  'AS',   '#',   '#',   '#',   '#',   '#',   'BS'],
+           [   ' ', 'Z-1',   ' ',   ' ',   ' ', 'Z-1',    ' '],
+           ['BE10',   '#',   '#',   '#',   '#',   '#', 'AE10']]
+  return Gridworld(grid)
+
+def getBigUglyBridgeGrid2():
+  # No communication possible... mutating world
+  grid  = [[  'AS',   '#',   '#',   '#',   '#',   '#',   'BS'],
+           [   ' ', 'Z-1',   ' ',   ' ',   ' ', 'Z-1',    ' '],
+           ['BE10',   '#',   '#',   '#',   '#',   '#', 'AE10']]
+
+  def initializer(g):
+    squareToZap = random.choice([(1, 1), (5, 1), None])
+    if squareToZap:
+      x, y = squareToZap
+      g[x][y] = '#'
+  def mutator(g, state):
+    if (3, 1) in state.values():
+      g[1][1] = 'Z-1'
+      g[5][1] = 'Z-1'
+  return Gridworld(grid, initializer, mutator)
+
+def getBigUglyBridgeGrid3():
   # Intended to force communication
   grid  = [[  'AS',   '#',   '#',   '#',   '#',   '#',   'BS'],
            [   ' ', 'Z-1',   ' ',   ' ',   ' ', 'Z-1',    ' '],
            ['BE10',   '#',   '#',   '#',   '#',   '#', 'AE10']]
-  def initializer():
-    squareToZap = random.choice((1, 1), (5, 1), None)
+
+  def initializer(g):
+    squareToZap = random.choice([(1, 1), (5, 1), None])
     if squareToZap:
       x, y = squareToZap
-      grid[x][y] = '#'
-  def mutator(state):
+      g[x][y] = '#'
+  def mutator(g, state):
     if (3, 1) in state.values():
-      grid[1][1] = 'Z-10'
-      grid[5][1] = 'Z-10'
-  return Gridworld(grid, initializer, mutator)
+      g[1][1] = 'Z-1'
+      g[5][1] = 'Z-1'
+  return Gridworld(grid, initializer, mutator, True)
 
 class Gridworld():
   """
@@ -123,6 +149,21 @@ class Gridworld():
     """
     self.noise = noise
 
+  def getStatesGiven(self, currentState, agent):
+    """
+    Return list of states with every possible position of `agent', holding everything else in `currentState' fixed.
+    """
+    newState = dict(currentState)
+    newState[agent] = self.grid.terminalState
+    states = [newState]
+    for x in range(self.grid.width):
+      for y in range(self.grid.height):
+        if self.grid[x][y] != '#' and not any(k != agent and v == (x, y) for k, v in currentState.items()):
+          newState = dict(currentState)
+          newState[agent] = (x, y)
+          states.append(newState)
+    return states
+
   def getStates(self):
     """
     Return list of all states.
@@ -136,15 +177,22 @@ class Gridworld():
 
     # TODO: un-hardwire A and B
     states = []
+
+    state = {}
     for posA in positions:
-      protostate = {}
-      protostate['A'] = posA
       for posB in positions:
         if posB == posA:
           continue
-        state = dict(protostate)
+        state['A'] = posA
         state['B'] = posB
-        states.append(state)
+        if self.allowComm:
+          for a_msg in [True, False]:
+            for b_msg in [True, False]:
+              state['A_msg'] = a_msg
+              state['B_msg'] = b_msg
+              states.append(dict(state))
+        else:
+          states.append(dict(state))
 
     return states
 
@@ -198,6 +246,9 @@ class Gridworld():
       	cell = self.grid[x][y]
       	if len(cell) > 1 and cell[1] == 'S':
           state[cell[0]] = (x, y)
+    if self.allowComm:
+      for key in state.keys():
+        state[key + "_msg"] = False
     return state
 
   def isTerminal(self, state, agent):
@@ -234,35 +285,39 @@ class Gridworld():
       nextState[agent] = self.grid.terminalState
       return [(nextState, 1.0)]
 
-    # TODO: If agent is communicating...
+    # If agent is communicating...
+    if action == 'comm':
+      nextState = dict(state)
+      nextState[agent + "_msg"] = True
+      return [(nextState, 1.0)]
 
     # If agent is trying to move north, south, east, west, it is subject to noise
     successors = []                
 
-    northState = (self.__isAllowed(state,y+1,x) and (x,y+1)) or state[agent]
-    westState = (self.__isAllowed(state,y,x-1) and (x-1,y)) or state[agent]
-    southState = (self.__isAllowed(state,y-1,x) and (x,y-1)) or state[agent]
-    eastState = (self.__isAllowed(state,y,x+1) and (x+1,y)) or state[agent]
+    northPos = (self.__isAllowed(state,y+1,x) and (x,y+1)) or state[agent]
+    westPos = (self.__isAllowed(state,y,x-1) and (x-1,y)) or state[agent]
+    southPos = (self.__isAllowed(state,y-1,x) and (x,y-1)) or state[agent]
+    eastPos = (self.__isAllowed(state,y,x+1) and (x+1,y)) or state[agent]
                         
     if action == 'north' or action == 'south':
       if action == 'north': 
-        successors.append((northState,1-self.noise))
+        successors.append((northPos,1-self.noise))
       else:
-        successors.append((southState,1-self.noise))
+        successors.append((southPos,1-self.noise))
                                 
       massLeft = self.noise
-      successors.append((westState,massLeft/2.0))    
-      successors.append((eastState,massLeft/2.0))
+      successors.append((westPos,massLeft/2.0))    
+      successors.append((eastPos,massLeft/2.0))
                                 
     if action == 'west' or action == 'east':
       if action == 'west':
-        successors.append((westState,1-self.noise))
+        successors.append((westPos,1-self.noise))
       else:
-        successors.append((eastState,1-self.noise))
+        successors.append((eastPos,1-self.noise))
                 
       massLeft = self.noise
-      successors.append((northState,massLeft/2.0))
-      successors.append((southState,massLeft/2.0)) 
+      successors.append((northPos,massLeft/2.0))
+      successors.append((southPos,massLeft/2.0)) 
       
     successors = self.__aggregate(successors)
 
@@ -282,7 +337,7 @@ class Gridworld():
     for pos, prob in counter.items():
       newPosAndProbs.append((pos, prob))
     return newPosAndProbs
-        
+
   def __isAllowed(self, state, y, x):
     return not (self.isWall(state, y, x) or self.isAgent(state, y, x))
 
@@ -294,13 +349,22 @@ class Gridworld():
   def isAgent(self, state, y, x):
     return (x, y) in state.values()
 
+  def reset(self):
+    if self.initializer:
+      self.initializer(self.grid)
+
+  def mutate(self, state):
+    if self.mutator:
+      self.mutator(self.grid, state)
+
 
 class GridworldEnvironment():
     
   def __init__(self, gridWorld):
     self.gridWorld = gridWorld
-    self.reset()
-    self.agentLabels = sorted(self.state.keys())
+    #self.reset()
+    self.state = self.gridWorld.getStartState()
+    self.agentLabels = sorted(k for k in self.state.keys() if not k.endswith('_msg'))
 
   def getCurrentState(self):
     return self.state
@@ -320,10 +384,12 @@ class GridworldEnvironment():
       if rand < sum:
         reward = self.gridWorld.getReward(state, agent, action, nextState)
         self.state = nextState
+        self.gridWorld.mutate(nextState)
         return (nextState, reward)
     raise 'Total transition probability less than one; sample failure.'    
 
   def reset(self):
+    self.gridWorld.reset()
     self.state = self.gridWorld.getStartState()
 
 
@@ -516,6 +582,9 @@ def radiusOneObserverFactory(world, agent):
           observation.write("X")
         else:
           observation.write(" ")
+    if world.allowComm:
+      observation.write(state["A_msg"] and "T" or "F")
+      observation.write(state["B_msg"] and "T" or "F")
     return observation.getvalue()
 
   return radiusOneObserver
@@ -576,29 +645,26 @@ if __name__ == '__main__':
       if opts.pause and (opts.quiet == -1 or episode > opts.quiet):
         pauseCallback = lambda: display.pause()
 
-      if episode == opts.quiet + 1:
-        for agent in agents:
-          if 'epsilon' in dir(agent):
-            agent.epsilon = 0
-        world.setNoise(0)
+      # if episode == opts.quiet + 1:
+      #   for agent in agents:
+      #     if 'epsilon' in dir(agent):
+      #       agent.epsilon = 0
+      #   world.setNoise(0)
 
       print "STARTING EPISODE %d" % (episode)
       returns.append(runEpisode(agents, env, opts.discount, displayCallback, messageCallback, pauseCallback, episode))
 
-    # if opts.episodes > 0:
-    #   print
-    #   print "AVERAGE RETURNS FROM START STATE: "+str((returns+0.0) / opts.episodes)
-
-    if opts.quiet == -1 or episode > opts.quiet:
-      for index, agent in enumerate(agents):
-        label = env.agentLabels[index]
-        display.displayQValues(agent, env.agentLabels[index], message="Q-VALUES FOR "+label+" AFTER "+str(opts.episodes)+" EPISODES")
-        display.pause()
-
     timeString = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
-    fileName = "results_n%0.2f_r%0.2f_k%d_%s_%s.txt" % (opts.noise, opts.livingReward, opts.episodes, opts.grid, timeString)
+    filePrefix = "results_n%0.2f_r%0.2f_k%d_%s_%s_%s" % (opts.noise, opts.livingReward, opts.episodes, opts.grid, opts.partial and "part" or "full", timeString)
 
-    f = open(fileName, 'w')
+    for index, agent in enumerate(agents):
+      label = env.agentLabels[index]
+      message = "Q-VALUES FOR %s AFTER %d EPISODES" % (label, opts.episodes)
+      if opts.quiet == -1 or episode > opts.quiet:
+        display.displayQValues(agent, env.agentLabels[index], message=message)
+      display.dumpQValues(agent, env.agentLabels[index], message, "%s_%s_qvalues_%%d.png" % (filePrefix, label))
+
+    f = open("%s.txt" % (filePrefix), 'w')
     f.write(str(env.agentLabels) + "\n")
     for episode, returnCounter in enumerate(returns):
       f.write("%d, %s\n" % (episode, ", ".join(str(returnCounter[label]) for label in env.agentLabels)))

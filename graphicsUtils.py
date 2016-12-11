@@ -13,6 +13,8 @@ import string
 import time
 import types
 import Tkinter
+from PIL import Image
+import io
 
 _Windows = sys.platform == 'win32'  # True if on Win95/98/NT
 
@@ -365,6 +367,11 @@ def writePostscript(filename):
                      y='0.c',
                      x='0.c'))
     psfile.close()
+
+def writePNG(filename):
+    ps = _canvas.postscript(colormode='color',pageanchor='sw',y='0.c',x='0.c')
+    img = Image.open(io.BytesIO(ps.encode('utf-8')))
+    img.save(filename)
 
 ghost_shape = [
     (0, - 0.5),
